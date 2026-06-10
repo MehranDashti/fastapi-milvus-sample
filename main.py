@@ -14,6 +14,7 @@ from lc_components import lc_ingest, lc_query
 from rag_agent import agent_query, get_agent
 from pdf_extractor import extract_text_from_pdf_bytes
 from conversation import chat
+from tool_agent import run_tool_agent
 
 logger = get_logger(__name__)
 
@@ -118,6 +119,23 @@ class ChatResponse(BaseModel):
     history: list[ChatMessage]         # updated history — client stores this
     duration_ms: int
 
+class ToolAgentRequest(BaseModel):
+    question: str
+    history: list[ChatMessage] = []
+    max_iterations: int = 5
+
+class ToolResult(BaseModel):
+    tool: str
+    args: dict
+    result: str
+
+class ToolAgentResponse(BaseModel):
+    question: str
+    answer: str
+    tools_used: list[str]
+    tool_results: list[ToolResult]
+    iterations: int
+    duration_ms: int
 
 @app.post("/chat", response_model=ChatResponse)
 def chat_route(request: ChatRequest):
@@ -421,5 +439,34 @@ def chat_route(request: ChatRequest):
         sources=result["sources"],
         chunks_used=result["chunks_used"],
         history=updated_history,
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+@app.post("/agent/tool", response_model=ToolAgentResponse)
+def tool_agent_route(request: ToolAgentRequest):
+    """
+    True agentic RAG with tool use.
+    The agent decides which tools to call based on the question.
+    Can combine: document search + web search + calculator + date.
+    """
+    start = time.time()
+
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    history = [{"role": m.role, "content": m.content} for m in request.history]
+
+    result = run_tool_agent(
+        question=request.question,
+        history=history,
+        max_iterations=request.max_iterations,
+    )
+
+    return ToolAgentResponse(
+        question=request.question,
+        answer=result["answer"],
+        tools_used=result["tools_used"],
+        tool_results=[ToolResult(**tr) for tr in result["tool_results"]],
+        iterations=result["iterations"],
         duration_ms=int((time.time() - start) * 1000),
     )
