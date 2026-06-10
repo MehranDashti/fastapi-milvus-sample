@@ -12,6 +12,7 @@ from llm import ask_with_score_filter
 from logger import get_logger
 from lc_components import lc_ingest, lc_query
 from rag_agent import agent_query, get_agent
+from pdf_extractor import extract_text_from_pdf_bytes
 
 logger = get_logger(__name__)
 
@@ -259,4 +260,44 @@ def agent_query_route(request: QueryRequest):
         reasoning=result["reasoning"],
         chunks_used=result["chunks_used"],
         duration_ms=int((time.time() - start) * 1000),
+    )
+    
+@app.post("/ingest/pdf", response_model=IngestResponse)
+async def ingest_pdf_route(file: UploadFile = File(...)):
+    """
+    Upload a PDF file and ingest it into the vector store.
+    Extracts text page by page, chunks it, embeds, and stores.
+
+    Supports: text-based PDFs
+    Does NOT support: scanned/image PDFs (no OCR)
+    """
+    start = time.time()
+
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only .pdf files are supported on this endpoint."
+        )
+
+    # Read file bytes
+    content = await file.read()
+
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # Extract text from PDF bytes
+    try:
+        text = extract_text_from_pdf_bytes(content, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Ingest extracted text
+    result = ingest_text(text, source=file.filename)
+    duration = int((time.time() - start) * 1000)
+
+    return IngestResponse(
+        source=result["source"],
+        chunks=result["chunks"],
+        inserted=result["inserted"],
+        duration_ms=duration,
     )

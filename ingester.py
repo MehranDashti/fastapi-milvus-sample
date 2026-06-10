@@ -3,6 +3,7 @@ import tiktoken
 from milvus_client import get_client, ensure_collection
 from embedder import embed_batch
 from config import settings
+from pdf_extractor import extract_text_from_pdf
 
 
 def get_tokenizer():
@@ -92,7 +93,6 @@ def ingest_text(text: str, source: str) -> dict:
         collection_name=settings.milvus.COLLECTION,
         data=entities,
     )
-    client.flush(collection_name=settings.milvus.COLLECTION)
 
     print(f"[Ingester] Done. Inserted IDs count: {result['insert_count']}")
 
@@ -129,3 +129,15 @@ def delete_by_source(source: str) -> dict:
 
     print(f"[Ingester] Deleted chunks from source: {source}")
     return {"source": source, "deleted": result["delete_count"]}
+
+def ingest_pdf(filepath: str) -> dict:
+    """
+    Extract text from a PDF file and ingest it.
+    Source identifier is the filepath.
+
+    Pipeline:
+        PDF file → extract text → chunk → embed → store in Milvus
+    """
+    logger.info(f"[Ingester] Reading PDF: {filepath}")
+    text = extract_text_from_pdf(filepath)
+    return ingest_text(text, source=filepath)

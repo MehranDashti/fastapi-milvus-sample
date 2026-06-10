@@ -11,7 +11,7 @@ print("Inserted:", result["inserted"])
 
 # Force flush before checking stats
 client = get_client()
-client.flush(collection_name="documents")   # ← wait for disk write
+# client.flush(collection_name="documents")   # ← wait for disk write
 
 stats = get_collection_stats(client)
 print("\n--- Collection Stats After Ingest ---")
