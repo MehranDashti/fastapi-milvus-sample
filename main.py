@@ -13,6 +13,7 @@ from logger import get_logger
 from lc_components import lc_ingest, lc_query
 from rag_agent import agent_query, get_agent
 from pdf_extractor import extract_text_from_pdf_bytes
+from conversation import chat
 
 logger = get_logger(__name__)
 
@@ -96,6 +97,86 @@ class AgentQueryResponse(BaseModel):
     best_score: float
     reasoning: list[str]
     chunks_used: int
+    duration_ms: int
+
+class ChatMessage(BaseModel):
+    role: str        # "user" or "assistant"
+    content: str
+
+class ChatRequest(BaseModel):
+    question: str
+    history: list[ChatMessage] = []    # empty list = new conversation
+    top_k: int = 5
+    min_score: float = 0.40
+    source_filter: str = None
+
+class ChatResponse(BaseModel):
+    question: str
+    answer: str
+    sources: list[str]
+    chunks_used: int
+    history: list[ChatMessage]         # updated history — client stores this
+    duration_ms: int
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_route(request: ChatRequest):
+    """
+    Conversational RAG with memory.
+
+    The client sends conversation history with each request.
+    The server returns updated history which the client stores and sends back.
+
+    This keeps the server stateless while maintaining conversation context.
+    """
+    start = time.time()
+
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    # Convert Pydantic models to plain dicts for conversation.py
+    history = [{"role": m.role, "content": m.content} for m in request.history]
+
+    result = chat(
+        question=request.question,
+        history=history,
+        top_k=request.top_k,
+        min_score=request.min_score,
+        source_filter=request.source_filter,
+    )
+
+    # Convert history back to ChatMessage objects for response
+    updated_history = [
+        ChatMessage(role=h["role"], content=h["content"])
+        for h in result["history"]
+    ]
+
+    return ChatResponse(
+        question=request.question,
+        answer=result["answer"],
+        sources=result["sources"],
+        chunks_used=result["chunks_used"],
+        history=updated_history,
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+class ChatMessage(BaseModel):
+    role: str        # "user" or "assistant"
+    content: str
+
+class ChatRequest(BaseModel):
+    question: str
+    history: list[ChatMessage] = []    # empty list = new conversation
+    top_k: int = 5
+    min_score: float = 0.40
+    source_filter: str = None
+
+class ChatResponse(BaseModel):
+    question: str
+    answer: str
+    sources: list[str]
+    chunks_used: int
+    history: list[ChatMessage]         # updated history — client stores this
     duration_ms: int
 
 @app.get("/health")
@@ -300,4 +381,45 @@ async def ingest_pdf_route(file: UploadFile = File(...)):
         chunks=result["chunks"],
         inserted=result["inserted"],
         duration_ms=duration,
+    )
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_route(request: ChatRequest):
+    """
+    Conversational RAG with memory.
+
+    The client sends conversation history with each request.
+    The server returns updated history which the client stores and sends back.
+
+    This keeps the server stateless while maintaining conversation context.
+    """
+    start = time.time()
+
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    # Convert Pydantic models to plain dicts for conversation.py
+    history = [{"role": m.role, "content": m.content} for m in request.history]
+
+    result = chat(
+        question=request.question,
+        history=history,
+        top_k=request.top_k,
+        min_score=request.min_score,
+        source_filter=request.source_filter,
+    )
+
+    # Convert history back to ChatMessage objects for response
+    updated_history = [
+        ChatMessage(role=h["role"], content=h["content"])
+        for h in result["history"]
+    ]
+
+    return ChatResponse(
+        question=request.question,
+        answer=result["answer"],
+        sources=result["sources"],
+        chunks_used=result["chunks_used"],
+        history=updated_history,
+        duration_ms=int((time.time() - start) * 1000),
     )
