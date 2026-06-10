@@ -1,73 +1,72 @@
-from openai import OpenAI
+import time
+from openai import OpenAI, RateLimitError, APIStatusError
 from config import settings
 
-
-# Single client instance — like Laravel's singleton binding
-# Created once, reused across all calls
 _client = OpenAI(api_key=settings.openai.API_KEY)
 
 
+def _with_retry(fn, retries: int = 3, backoff: float = 2.0):
+    """
+    Retry wrapper for OpenAI calls.
+    On RateLimitError waits exponentially: 2s, 4s, 8s before giving up.
+
+    backoff=2.0 means:
+        attempt 1 fails → wait 2s
+        attempt 2 fails → wait 4s
+        attempt 3 fails → raise
+    """
+    last_error = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except RateLimitError as e:
+            last_error = e
+            wait = backoff ** (attempt + 1)
+            print(f"[Embedder] Rate limited. Retrying in {wait}s... (attempt {attempt+1}/{retries})")
+            time.sleep(wait)
+        except APIStatusError as e:
+            if e.status_code >= 500:  # server error — retry
+                last_error = e
+                wait = backoff ** (attempt + 1)
+                print(f"[Embedder] OpenAI server error {e.status_code}. Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise  # client error (400, 401) — don't retry
+    raise last_error
+
+
 def embed_text(text: str) -> list[float]:
-    """
-    Embed a single string → returns a vector (list of 1536 floats).
-    Used at query time: embed the user's question.
-
-    Example:
-        vector = embed_text("How do I reset my password?")
-        # → [0.012, -0.543, 0.871, ...]  (1536 numbers)
-    """
-    text = text.strip().replace("\n", " ")  # clean whitespace
-
-    response = _client.embeddings.create(
-        model=settings.openai.EMBEDDING_MODEL,
-        input=text,
+    text = text.strip().replace("\n", " ")
+    response = _with_retry(
+        lambda: _client.embeddings.create(
+            model=settings.openai.EMBEDDING_MODEL,
+            input=text,
+        )
     )
-
     return response.data[0].embedding
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    """
-    Embed multiple strings in ONE API call → returns list of vectors.
-    Used at ingest time: embed all chunks of a document together.
-
-    Example:
-        vectors = embed_batch(["chunk one...", "chunk two...", "chunk three..."])
-        # → [[0.012, ...], [0.543, ...], [0.871, ...]]
-
-    OpenAI limit: max 2048 inputs per call.
-    We handle large batches by splitting into pages of 100.
-    """
     if not texts:
         return []
 
-    # Clean all texts
     texts = [t.strip().replace("\n", " ") for t in texts]
-
-    # Split into pages of 100 to stay well within OpenAI limits
     page_size = 100
     all_vectors = []
 
     for i in range(0, len(texts), page_size):
-        page = texts[i : i + page_size]
-
-        response = _client.embeddings.create(
-            model=settings.openai.EMBEDDING_MODEL,
-            input=page,
+        page = texts[i: i + page_size]
+        response = _with_retry(
+            lambda: _client.embeddings.create(
+                model=settings.openai.EMBEDDING_MODEL,
+                input=page,
+            )
         )
-
-        # response.data is ordered same as input — safe to extend directly
-        page_vectors = [item.embedding for item in response.data]
-        all_vectors.extend(page_vectors)
-
+        all_vectors.extend([item.embedding for item in response.data])
         print(f"[Embedder] Embedded {min(i + page_size, len(texts))}/{len(texts)} texts")
 
     return all_vectors
 
 
 def get_embedding_dimension() -> int:
-    """
-    Returns the dimension of the embedding model.
-    Useful for sanity checks — must match collection schema.
-    """
     return settings.openai.EMBEDDING_DIMENSION

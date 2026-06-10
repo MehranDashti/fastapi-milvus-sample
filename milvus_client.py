@@ -1,20 +1,26 @@
 from pymilvus import MilvusClient, DataType
 from config import settings
 
+# Module-level singleton — created once, reused across all requests
+_client: MilvusClient | None = None
+
 
 def get_client() -> MilvusClient:
-    """
-    Create and return a Milvus client.
-    Like Laravel's DB::connection() — single entry point.
-    """
-    client = MilvusClient(uri=settings.milvus.URI)
-    return client
+    global _client
+    if _client is None:
+        _client = MilvusClient(uri=settings.milvus.URI)
+        print(f"[Milvus] New connection → {settings.milvus.URI}")
+    return _client
 
+
+def reset_client() -> None:
+    """Force reconnect — useful after connection errors."""
+    global _client
+    _client = None
 
 def build_schema(client: MilvusClient):
     """
     Define the full collection schema.
-    Like a Laravel migration — defines all fields and their types.
     """
     schema = client.create_schema(
         auto_id=True,               # Milvus generates IDs (like AUTO_INCREMENT)

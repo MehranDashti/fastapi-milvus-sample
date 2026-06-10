@@ -9,7 +9,6 @@ def get_tokenizer():
     """
     Returns tiktoken encoder for the embedding model.
     cl100k_base is the encoding used by text-embedding-3-small.
-    Like a tokenizer in Laravel's string helpers — splits text into countable units.
     """
     return tiktoken.get_encoding("cl100k_base")
 
