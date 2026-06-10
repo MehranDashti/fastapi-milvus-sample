@@ -5,8 +5,6 @@ def get_logger(name: str) -> logging.Logger:
     """
     Returns a configured logger for a module.
     Usage: logger = get_logger(__name__)
-
-    Like Laravel's Log::info() / Log::error() but per-module.
     """
     logger = logging.getLogger(name)
 

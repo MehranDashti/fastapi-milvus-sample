@@ -3,24 +3,27 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from fastapi import Request
-
+from fastapi.responses import JSONResponse
 
 from milvus_client import get_client, ensure_collection, get_collection_stats
 from ingester import ingest_text, delete_by_source
 from searcher import search
 from llm import ask_with_score_filter
 from logger import get_logger
+from lc_components import lc_ingest, lc_query
+from rag_agent import agent_query, get_agent
 
 logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("[Startup] Connecting to Milvus...")
+    logger.info("Connecting to Milvus...")
     client = get_client()
     ensure_collection(client)
-    logger.info("[Startup] Ready.")
+    get_agent()                # ← compile agent graph at startup
+    logger.info("Service ready.")
     yield
-    logger.info("[Shutdown] Bye.")
+    logger.info("Shutting down.")
 
 app = FastAPI(
     title="RAG Service",
@@ -70,6 +73,29 @@ class StatsResponse(BaseModel):
     row_count: int
     fields: list[str]
 
+class LCQueryRequest(BaseModel):
+    question: str
+
+class LCQueryResponse(BaseModel):
+    question: str
+    answer: str
+    sources: list[str]
+    chunks_used: int
+    duration_ms: int
+
+class LCIngestRequest(BaseModel):
+    text: str
+    source: str
+
+class AgentQueryResponse(BaseModel):
+    question: str
+    answer: str
+    sources: list[str]
+    attempts: int
+    best_score: float
+    reasoning: list[str]
+    chunks_used: int
+    duration_ms: int
 
 @app.get("/health")
 def health():
@@ -183,4 +209,54 @@ def delete_source(source_name: str):
     return DeleteResponse(
         source=result["source"],
         deleted=result["deleted"],
+    )
+
+@app.post("/lc/ingest", response_model=IngestResponse)
+def lc_ingest_route(request: LCIngestRequest):
+    """Ingest text using LangChain pipeline."""
+    start = time.time()
+    result = lc_ingest(request.text, request.source)
+    return IngestResponse(
+        source=result["source"],
+        chunks=result["chunks"],
+        inserted=result["inserted"],
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+
+@app.post("/lc/query", response_model=LCQueryResponse)
+def lc_query_route(request: LCQueryRequest):
+    """Query using LangChain RAG chain."""
+    start = time.time()
+    result = lc_query(request.question)
+    return LCQueryResponse(
+        question=request.question,
+        answer=result["answer"],
+        sources=result["sources"],
+        chunks_used=result["chunks_used"],
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+@app.post("/agent/query", response_model=AgentQueryResponse)
+def agent_query_route(request: QueryRequest):
+    """
+    Agentic RAG: automatically retries with rephrased question
+    if initial retrieval quality is poor.
+    """
+    start = time.time()
+
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    result = agent_query(request.question)
+
+    return AgentQueryResponse(
+        question=request.question,
+        answer=result["answer"],
+        sources=result["sources"],
+        attempts=result["attempts"],
+        best_score=result["best_score"],
+        reasoning=result["reasoning"],
+        chunks_used=result["chunks_used"],
+        duration_ms=int((time.time() - start) * 1000),
     )
