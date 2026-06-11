@@ -2,6 +2,21 @@
 
 A production-ready Retrieval-Augmented Generation (RAG) API built with FastAPI, Milvus, and OpenAI. Supports standard RAG, LangChain pipelines, LangGraph agentic RAG, conversational RAG with history, and tool-use agents.
 
+## Learn the Stack
+
+New to RAG, Milvus, LangChain, or LangGraph? The `doc/` folder contains deep-dive guides for each technology, written in a step-by-step style using the actual code in this project as examples.
+
+| # | Document | What you will learn |
+|---|---|---|
+| 1 | [`doc/01-rag.md`](doc/01-rag.md) | What RAG is, the three phases (chunk → embed → store → retrieve → generate), score filtering, conversational RAG, agentic retry loops |
+| 2 | [`doc/02-milvus.md`](doc/02-milvus.md) | Vector databases, HNSW indexing, cosine similarity, CRUD operations, scalar filtering, multi-tenancy patterns |
+| 3 | [`doc/03-langchain.md`](doc/03-langchain.md) | LangChain abstractions, LCEL pipe composition, embeddings, retrievers, chat models, streaming, when to use vs raw SDK |
+| 4 | [`doc/04-langgraph.md`](doc/04-langgraph.md) | Stateful agent graphs, nodes, conditional edges, retry loops, checkpointing, human-in-the-loop, streaming |
+| 5 | [`doc/05-putting-it-together.md`](doc/05-putting-it-together.md) | Full architecture, end-to-end request traces for every endpoint, component dependency map, extension points, production checklist |
+
+**Recommended reading order:** 01 → 02 → 03 → 04 → 05.
+Each document ends with a pointer to the next one.
+
 ## Setup
 
 ### 1. Create a virtual environment
